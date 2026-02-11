@@ -1,0 +1,5 @@
+node_modules
+schemas/*.yaml
+collections/*.yaml
+!schemas/*.yaml.dist
+!collections/*.yaml.dist

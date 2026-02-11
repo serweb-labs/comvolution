@@ -1,0 +1,15 @@
+id: summer-sale
+name: Summer Sale
+schema_id: clothing
+description: Summer items on promotion
+filters:
+  price:
+    lt: 20000
+  color:
+    - red
+    - yellow
+  is_limited: true
+sort:
+  price: asc
+pagination:
+  pageSize: 20

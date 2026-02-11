@@ -1,0 +1,18 @@
+id: clothing
+fields:
+  size:
+    type: string
+    filterable: true
+    required: true
+  color:
+    type: string
+    filterable: true
+  weight:
+    type: int
+    filterable: true
+    sortable: true
+  is_limited:
+    type: bool
+    filterable: true
+metadata:
+  label: Clothing schema
