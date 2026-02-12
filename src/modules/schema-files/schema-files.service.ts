@@ -9,6 +9,7 @@ type FieldDef = {
   sortable?: boolean;
   required?: boolean;
   label?: string;
+  default?: any;
 };
 
 type SchemaYaml = {

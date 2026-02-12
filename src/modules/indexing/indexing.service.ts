@@ -8,6 +8,7 @@ type FieldDef = {
   type: PropertyType;
   filterable?: boolean;
   sortable?: boolean;
+  default?: any;
 };
 
 @Injectable()
@@ -21,8 +22,15 @@ export class IndexingService {
     await this.propRepo.delete({ product_id: product.id });
     for (const [key, def] of Object.entries(fields)) {
       if (!def.filterable && !def.sortable) continue;
-      const raw = (product.data ?? {})[key];
-      if (raw === undefined || raw === null) continue;
+      const raw0 = (product.data ?? {})[key];
+      let raw = raw0;
+      if (raw === undefined || raw === null) {
+        if (def.default !== undefined) {
+          raw = def.default;
+        } else {
+          continue;
+        }
+      }
 
       const entity = this.propRepo.create({
         product_id: product.id,

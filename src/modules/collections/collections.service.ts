@@ -3,6 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from '../../orm/entities/product.entity';
 import { CollectionFilesService } from '../collection-files/collection-files.service';
+import { SchemaFilesService } from '../schema-files/schema-files.service';
+import { FilterResolverService } from '../filters/filter-resolver.service';
+import { SortResolverService } from '../sorts/sort-resolver.service';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -12,87 +15,18 @@ export class CollectionsService {
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
     private readonly files: CollectionFilesService,
+    private readonly schemas: SchemaFilesService,
+    private readonly filtersResolver: FilterResolverService,
+    private readonly sortResolver: SortResolverService,
   ) {}
 
-  private applyCoreFilters(qb: SelectQueryBuilder<Product>, filters: Record<string, any>) {
-    if (filters.price?.lt !== undefined) {
-      qb.andWhere('p.price < :priceLt', { priceLt: filters.price.lt });
-    }
-    if (filters.price?.gt !== undefined) {
-      qb.andWhere('p.price > :priceGt', { priceGt: filters.price.gt });
-    }
-    if (filters.status !== undefined) {
-      qb.andWhere('p.status = :status', { status: filters.status });
-    }
-    if (filters.sku_in) {
-      qb.andWhere('p.sku IN (:...skuIn)', { skuIn: filters.sku_in });
-    }
+  private applyFilters(qb: SelectQueryBuilder<Product>, filters: Record<string, any>, propertyTypes?: Record<string, any>, schemaId?: string) {
+    this.filtersResolver.applyAll(qb, filters, { coreKeys: new Set(['price', 'status', 'sku', 'stock', 'sku_in']), propertyTypes, schemaId });
   }
 
-  private applyCustomFilters(qb: SelectQueryBuilder<Product>, filters: Record<string, any>) {
-    for (const [key, value] of Object.entries(filters)) {
-      if (['price', 'status', 'sku_in'].includes(key)) continue;
-      if (value === undefined) continue;
-      const alias = `pp_${key}`;
-      if (Array.isArray(value)) {
-        qb.andWhere(`
-          EXISTS (
-            SELECT 1 FROM product_properties ${alias}
-            WHERE ${alias}.product_id = p.id
-              AND ${alias}.property_key = :k_${key}
-              AND ${alias}.value_string IN (:...v_${key})
-          )
-        `, { [`k_${key}`]: key, [`v_${key}`]: value });
-      } else if (typeof value === 'boolean') {
-        qb.andWhere(`
-          EXISTS (
-            SELECT 1 FROM product_properties ${alias}
-            WHERE ${alias}.product_id = p.id
-              AND ${alias}.property_key = :k_${key}
-              AND ${alias}.value_bool = :v_${key}
-          )
-        `, { [`k_${key}`]: key, [`v_${key}`]: value });
-      } else if (typeof value === 'number') {
-        qb.andWhere(`
-          EXISTS (
-            SELECT 1 FROM product_properties ${alias}
-            WHERE ${alias}.product_id = p.id
-              AND ${alias}.property_key = :k_${key}
-              AND (${alias}.value_int = :v_${key} OR ${alias}.value_decimal = :v_${key})
-          )
-        `, { [`k_${key}`]: key, [`v_${key}`]: value });
-      } else if (typeof value === 'string') {
-        qb.andWhere(`
-          EXISTS (
-            SELECT 1 FROM product_properties ${alias}
-            WHERE ${alias}.product_id = p.id
-              AND ${alias}.property_key = :k_${key}
-              AND ${alias}.value_string = :v_${key}
-          )
-        `, { [`k_${key}`]: key, [`v_${key}`]: value });
-      }
-    }
-  }
-
-  private applySort(qb: SelectQueryBuilder<Product>, sort?: Record<string, SortOrder>) {
+  private applySort(qb: SelectQueryBuilder<Product>, sort?: Record<string, SortOrder>, propertyTypes?: Record<string, any>, schemaId?: string) {
     if (!sort) return;
-    const entries = Object.entries(sort);
-    for (const [key, dir] of entries) {
-      if (['price', 'stock', 'sku', 'status'].includes(key)) {
-        qb.addOrderBy(`p.${key}`, dir.toUpperCase() as 'ASC' | 'DESC', 'NULLS LAST');
-      } else {
-        const alias = `s_${key}`;
-        qb.leftJoin(
-          'product_properties',
-          alias,
-          `${alias}.product_id = p.id AND ${alias}.property_key = :sort_${key}`,
-          { [`sort_${key}`]: key },
-        );
-        qb.addOrderBy(`${alias}.value_int`, dir.toUpperCase() as 'ASC' | 'DESC', 'NULLS LAST');
-        qb.addOrderBy(`${alias}.value_decimal`, dir.toUpperCase() as 'ASC' | 'DESC', 'NULLS LAST');
-        qb.addOrderBy(`${alias}.value_string`, dir.toUpperCase() as 'ASC' | 'DESC', 'NULLS LAST');
-      }
-    }
+    this.sortResolver.applyAll(qb, sort as any, { coreKeys: new Set(['price', 'status', 'sku', 'stock']), propertyTypes, schemaId });
   }
 
   async run(id: string, page = 1, pageSize = 20) {
@@ -100,14 +34,18 @@ export class CollectionsService {
     if (!def) return { total: 0, items: [] };
     const filters = def.filters ?? {};
     const sort = def.sort ?? {};
-    const ps = def.pagination?.pageSize ?? pageSize;
+    const ps = pageSize ?? def.pagination?.pageSize ?? 20;
     const qb = this.productRepo.createQueryBuilder('p');
     if (def.schema_id) {
       qb.andWhere('p.schema_id = :schemaId', { schemaId: def.schema_id });
     }
-    this.applyCoreFilters(qb, filters);
-    this.applyCustomFilters(qb, filters);
-    this.applySort(qb, sort);
+    let propertyTypes: Record<string, any> | undefined = undefined;
+    if (def.schema_id) {
+      const fields = await this.schemas.getFields(def.schema_id);
+      propertyTypes = fields ? Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.type])) : undefined;
+    }
+    this.applyFilters(qb, filters, propertyTypes, def.schema_id);
+    this.applySort(qb, sort, propertyTypes, def.schema_id);
     qb.limit(ps).offset((page - 1) * ps);
     const items = await qb.getMany();
     return { items, page, pageSize: ps };

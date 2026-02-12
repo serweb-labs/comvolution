@@ -3,13 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product } from '../../orm/entities/product.entity';
 import { SchemaFilesService } from '../schema-files/schema-files.service';
-import { IndexingService } from '../indexing/indexing.service';
+import { DomainEventsService } from '../../domain/events/domain-events.service';
 
 type FieldDef = {
   type: 'string' | 'int' | 'bool' | 'date' | 'decimal';
   filterable?: boolean;
   sortable?: boolean;
   required?: boolean;
+  default?: any;
 };
 
 export interface CreateProductDto {
@@ -18,7 +19,7 @@ export interface CreateProductDto {
   stock: number;
   status: 'active' | 'inactive';
   schema_id: string;
-  schema_version: number;
+  schema_version?: number;
   data: Record<string, any>;
 }
 
@@ -28,7 +29,7 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly repo: Repository<Product>,
     private readonly schemas: SchemaFilesService,
-    private readonly indexing: IndexingService,
+    private readonly events: DomainEventsService,
   ) {}
 
   private validateAgainstSchema(data: Record<string, any>, fields: Record<string, FieldDef>) {
@@ -80,7 +81,13 @@ export class ProductsService {
     }
     const fields: Record<string, FieldDef> | null = await this.schemas.getFields(dto.schema_id);
     if (!fields) throw new BadRequestException('Schema not found');
-    const safeData = (dto as any).data && typeof (dto as any).data === 'object' ? (dto as any).data : {};
+    const safeData = (dto as any).data && typeof (dto as any).data === 'object' ? { ...(dto as any).data } : {};
+    for (const [key, def] of Object.entries(fields)) {
+      const v = (safeData as any)[key];
+      if ((v === undefined || v === null) && def.default !== undefined) {
+        (safeData as any)[key] = def.default;
+      }
+    }
     this.validateAgainstSchema(safeData, fields);
 
     const entity = this.repo.create({
@@ -93,7 +100,7 @@ export class ProductsService {
       data: safeData,
     });
     const saved = await this.repo.save(entity);
-    await this.indexing.rebuildProductIndex(saved, fields);
+    this.events.emitProductCreated(saved.id);
     return saved;
   }
 

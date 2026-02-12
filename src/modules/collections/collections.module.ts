@@ -5,9 +5,12 @@ import { CollectionsController } from './collections.controller';
 import { ProductProperty } from '../../orm/entities/product-property.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CollectionFilesModule } from '../collection-files/collection-files.module';
+import { SchemaFilesModule } from '../schema-files/schema-files.module';
+import { FiltersModule } from '../filters/filters.module';
+import { SortsModule } from '../sorts/sorts.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, ProductProperty]), CollectionFilesModule],
+  imports: [TypeOrmModule.forFeature([Product, ProductProperty]), CollectionFilesModule, SchemaFilesModule, FiltersModule, SortsModule],
   providers: [CollectionsService],
   controllers: [CollectionsController],
   exports: [CollectionsService],

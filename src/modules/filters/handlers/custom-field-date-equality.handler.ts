@@ -1,0 +1,30 @@
+import { Injectable } from '@nestjs/common';
+import { SelectQueryBuilder } from 'typeorm';
+import { Product } from '../../../orm/entities/product.entity';
+import { FilterContext, FilterHandler, Operation } from '../filter-handler';
+
+@Injectable()
+export class CustomFieldDateEqualityHandler implements FilterHandler {
+  id = 'custom-field-date-eq';
+  priority = 20;
+
+  supports(key: string, op: Operation, value: any, ctx: FilterContext): boolean {
+    if (ctx.coreKeys.has(key)) return false;
+    if (ctx.propertyType !== 'date') return false;
+    return op === 'eq' && typeof value === 'string';
+  }
+
+  apply(qb: SelectQueryBuilder<Product>, key: string, op: Operation, value: any, ctx: FilterContext): void {
+    void op; void ctx;
+    const alias = `cf_${key}`;
+    qb.andWhere(`
+      EXISTS (
+        SELECT 1 FROM product_properties ${alias}
+        WHERE ${alias}.product_id = p.id
+          AND ${alias}.property_key = :k_${key}
+          AND ${alias}.property_type = 'date'
+          AND ${alias}.value_date = CAST(:v_${key} AS timestamptz)
+      )
+    `, { [`k_${key}`]: key, [`v_${key}`]: value });
+  }
+}

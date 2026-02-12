@@ -6,6 +6,7 @@ import { SchemaFilesModule } from '../schema-files/schema-files.module';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
 import { IndexingModule } from '../indexing/indexing.module';
+import { DomainModule } from '../../domain/domain.module';
 
 
 @Module({
@@ -13,6 +14,7 @@ import { IndexingModule } from '../indexing/indexing.module';
     TypeOrmModule.forFeature([Product, ProductProperty]),
     IndexingModule,
     SchemaFilesModule,
+    DomainModule,
   ],
   providers: [ProductsService],
   controllers: [ProductsController],
